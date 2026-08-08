@@ -1,6 +1,5 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL ?? "noreply@libsar.org";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://libsar.org";
 
@@ -118,6 +117,8 @@ export async function sendWelcomeCredentials(email: string, fullName: string, te
     console.log("[DEV] Welcome email suppressed. Credentials:", { email, tempPassword });
     return;
   }
+
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
   try {
     const { error } = await resend.emails.send({
