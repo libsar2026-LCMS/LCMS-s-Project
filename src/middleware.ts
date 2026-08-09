@@ -30,9 +30,9 @@ export async function middleware(request: NextRequest) {
     const role   = userRow?.role ?? "member";
     const isAdmin = ["secretary", "president", "super_admin"].includes(role);
 
-    // Pending users: only allow /pending-approval
+    // Pending users: allow public routes + pending-approval only
     if (status === "pending") {
-      if (pathname !== PENDING_ROUTE) {
+      if (pathname !== PENDING_ROUTE && !isMatch(pathname, PUBLIC_ROUTES)) {
         return NextResponse.redirect(new URL(PENDING_ROUTE, request.url));
       }
       return supabaseResponse;
