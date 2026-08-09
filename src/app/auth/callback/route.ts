@@ -9,7 +9,16 @@ export async function GET(request: Request) {
   if (code) {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
+    if (!error && data.user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("membership_status")
+        .eq("id", data.user.id)
+        .single();
+
+      const status = profile?.membership_status ?? "pending";
+      if (status === "pending") return NextResponse.redirect(`${origin}/pending-approval`);
+      if (status === "rejected") return NextResponse.redirect(`${origin}/unauthorized?reason=rejected`);
       return NextResponse.redirect(`${origin}${next}`);
     }
   }

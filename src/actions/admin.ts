@@ -30,13 +30,12 @@ export async function approveMember(profileId: string) {
   const { error, supabase } = await assertAdmin();
   if (error || !supabase) return { error };
 
-  const adminClient = createAdminClient();
-  const [{ data: profile }, { data: authUser }] = await Promise.all([
-    supabase.from("profiles").select("full_name").eq("id", profileId).single(),
-    adminClient.auth.admin.getUserById(profileId),
-  ]);
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", profileId)
+    .single();
 
-  const email = authUser?.user?.email;
   const fullName = profile?.full_name ?? "member";
 
   const { error: dbError } = await supabase
@@ -49,21 +48,9 @@ export async function approveMember(profileId: string) {
   await supabase.from("notifications").insert({
     profile_id: profileId,
     title: "Account Approved!",
-    message: `Welcome to LIBSAR, ${fullName}! Your account has been approved. You can now log in to access the member dashboard.`,
+    message: `Welcome to LIBSAR, ${fullName}! Your account has been approved. You can now access the Member Portal.`,
     link: "/dashboard",
   });
-
-  if (email) {
-    // Send approval email — OTP magic link delivered automatically by Supabase
-    await adminClient.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
-        data: { approval_email: true },
-      },
-    });
-  }
 
   revalidatePath("/admin/members");
   revalidatePath("/admin/users");

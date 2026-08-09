@@ -4,14 +4,13 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
-import { Eye, EyeOff, UserPlus, CheckCircle } from "lucide-react";
+import { Eye, EyeOff, UserPlus } from "lucide-react";
 import { register as registerAction } from "@/actions/auth";
 import { registerSchema, type RegisterInput } from "@/lib/validations/auth";
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
@@ -20,28 +19,11 @@ export default function RegisterPage() {
   async function onSubmit(data: RegisterInput) {
     setError(null);
     const result = await registerAction(data);
-    if (result?.error) setError(result.error);
-    if (result?.success) setSuccess(true);
-  }
-
-  if (success) {
-    return (
-      <div className="flex flex-col items-center text-center">
-        <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-success/10">
-          <CheckCircle size={40} className="text-success" />
-        </div>
-        <h1 className="font-display text-2xl font-bold text-text-primary">Registration submitted!</h1>
-        <p className="mt-3 text-sm text-text-secondary leading-relaxed max-w-sm">
-          Your account is pending approval by the administrator. You will receive an email notification once your account has been approved.
-        </p>
-        <Link
-          href="/login"
-          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-md hover:bg-primary-light transition-all"
-        >
-          Back to Sign In
-        </Link>
-      </div>
-    );
+    if (result?.error) {
+      setError(result.error);
+    } else if (result?.redirect) {
+      window.location.href = result.redirect;
+    }
   }
 
   return (

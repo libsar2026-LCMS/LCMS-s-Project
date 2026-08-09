@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, User, CreditCard, Calendar,
   Bell, LogOut, Menu, X, ChevronRight, ShieldCheck, Images,
@@ -116,12 +116,11 @@ export function PortalSidebar({ fullName, membershipId, photoUrl, notificationCo
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const pathname = usePathname();
-  const router = useRouter();
 
   function handleLogout() {
     startTransition(async () => {
-      await logout();
-      router.push("/login");
+      const result = await logout();
+      window.location.href = result.redirect ?? "/login";
     });
   }
 

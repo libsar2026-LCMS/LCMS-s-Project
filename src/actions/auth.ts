@@ -30,6 +30,11 @@ export async function login(input: LoginInput) {
     return { redirect: "/pending-approval" };
   }
 
+  if (profile?.membership_status === "rejected") {
+    await supabase.auth.signOut();
+    return { error: "Your membership application was not approved. Please contact LIBSAR for more information." };
+  }
+
   if (profile?.must_change_password) {
     return { redirect: "/reset-password?forced=1" };
   }
@@ -50,35 +55,46 @@ export async function register(input: RegisterInput) {
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
   const supabase = await createClient();
-  const { error, data } = await supabase.auth.signUp({
+
+  // Sign up — email confirmation disabled in Supabase dashboard for this flow
+  const { error: signUpError, data } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
-    options: {
-      data: { full_name: parsed.data.full_name },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
-    },
+    options: { data: { full_name: parsed.data.full_name } },
   });
 
-  // Don't reveal whether the email already exists — show success regardless
-  if (error && !error.message.toLowerCase().includes("already")) {
-    return { error: error.message };
+  if (signUpError) {
+    // Surface duplicate-email as a friendly message
+    if (signUpError.message.toLowerCase().includes("already")) {
+      return { error: "An account with this email already exists. Please sign in." };
+    }
+    return { error: signUpError.message };
   }
 
   // Save phone if provided (trigger already created the profile row)
   if (data?.user?.id && parsed.data.phone) {
-    await supabase
-      .from("profiles")
-      .update({ phone: parsed.data.phone })
-      .eq("id", data.user.id);
+    await supabase.from("profiles").update({ phone: parsed.data.phone }).eq("id", data.user.id);
   }
 
-  return { success: "Account created! Your registration is pending admin approval. You'll receive an email once your account is approved." };
+  // Auto sign-in so the user lands on /pending-approval immediately
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: parsed.data.email,
+    password: parsed.data.password,
+  });
+
+  if (signInError) {
+    // Account created but sign-in failed — send them to login
+    return { redirect: "/login?registered=1" };
+  }
+
+  return { redirect: "/pending-approval" };
 }
 
 export async function logout() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  return { success: true };
+  // Return redirect so client can use window.location for a full page reload
+  return { redirect: "/login" };
 }
 
 export async function forgotPassword(input: ForgotPasswordInput) {

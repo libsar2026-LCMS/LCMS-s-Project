@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, Calendar, Newspaper, Images,
   FileText, Award, UsersRound, ShieldCheck, Settings,
@@ -100,12 +100,11 @@ export function AdminSidebar({ fullName, role, photoUrl }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const pathname = usePathname();
-  const router = useRouter();
 
   function handleLogout() {
     startTransition(async () => {
-      await logout();
-      router.push("/login");
+      const result = await logout();
+      window.location.href = result.redirect ?? "/login";
     });
   }
 

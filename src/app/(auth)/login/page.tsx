@@ -14,6 +14,7 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const urlError = searchParams.get("error");
+  const registered = searchParams.get("registered") === "1";
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -32,6 +33,12 @@ function LoginForm() {
         <h1 className="font-display text-3xl font-bold text-text-primary">Welcome back</h1>
         <p className="mt-2 text-sm text-text-secondary">Sign in to your LIBSAR account</p>
       </div>
+
+      {registered && (
+        <div className="mb-5 rounded-xl border border-success/20 bg-success/8 px-4 py-3 text-sm text-success">
+          Account created! Please sign in to continue.
+        </div>
+      )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         <div>
