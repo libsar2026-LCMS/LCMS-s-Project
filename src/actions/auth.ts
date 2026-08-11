@@ -11,6 +11,12 @@ import {
   type ForgotPasswordInput,
   type ResetPasswordInput,
 } from "@/lib/validations/auth";
+import {
+  sendWelcomeEmail,
+  sendPendingApprovalEmail,
+  sendLoginNotificationEmail,
+  sendPasswordChangedEmail,
+} from "@/lib/email";
 
 export async function login(input: LoginInput) {
   const parsed = loginSchema.safeParse(input);
@@ -22,7 +28,7 @@ export async function login(input: LoginInput) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("membership_status, must_change_password")
+    .select("membership_status, must_change_password, full_name")
     .eq("id", data.user.id)
     .single();
 
@@ -37,6 +43,18 @@ export async function login(input: LoginInput) {
 
   if (profile?.must_change_password) {
     return { redirect: "/reset-password?forced=1" };
+  }
+
+  // Fire login notification (non-blocking)
+  const email = data.user.email;
+  const fullName = profile?.full_name ?? "Member";
+  if (email) {
+    const time = new Date().toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Africa/Kigali",
+    });
+    sendLoginNotificationEmail(email, fullName, { time }).catch(() => null);
   }
 
   const { data: userRow } = await supabase
@@ -56,7 +74,6 @@ export async function register(input: RegisterInput) {
 
   const supabase = await createClient();
 
-  // Sign up — email confirmation disabled in Supabase dashboard for this flow
   const { error: signUpError, data } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
@@ -64,26 +81,28 @@ export async function register(input: RegisterInput) {
   });
 
   if (signUpError) {
-    // Surface duplicate-email as a friendly message
     if (signUpError.message.toLowerCase().includes("already")) {
       return { error: "An account with this email already exists. Please sign in." };
     }
     return { error: signUpError.message };
   }
 
-  // Save phone if provided (trigger already created the profile row)
   if (data?.user?.id && parsed.data.phone) {
     await supabase.from("profiles").update({ phone: parsed.data.phone }).eq("id", data.user.id);
   }
 
-  // Auto sign-in so the user lands on /pending-approval immediately
+  // Send welcome + pending approval emails (non-blocking)
+  const email = parsed.data.email;
+  const fullName = parsed.data.full_name;
+  sendWelcomeEmail(email, fullName).catch(() => null);
+  sendPendingApprovalEmail(email, fullName).catch(() => null);
+
   const { error: signInError } = await supabase.auth.signInWithPassword({
     email: parsed.data.email,
     password: parsed.data.password,
   });
 
   if (signInError) {
-    // Account created but sign-in failed — send them to login
     return { redirect: "/login?registered=1" };
   }
 
@@ -93,7 +112,6 @@ export async function register(input: RegisterInput) {
 export async function logout() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  // Return redirect so client can use window.location for a full page reload
   return { redirect: "/login" };
 }
 
@@ -102,6 +120,9 @@ export async function forgotPassword(input: ForgotPasswordInput) {
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
   const supabase = await createClient();
+
+  // Supabase sends its own reset email — we rely on that for the reset link.
+  // The redirectTo lands on /auth/callback which exchanges the code, then goes to /reset-password.
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/reset-password`,
   });
@@ -118,16 +139,27 @@ export async function resetPassword(input: ResetPasswordInput) {
   const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
   if (error) return { error: error.message };
 
-  // Clear the forced-change flag if it was set
   const { data: { user } } = await supabase.auth.getUser();
   if (user) {
     await supabase
       .from("profiles")
       .update({ must_change_password: false })
       .eq("id", user.id);
+
+    // Send password changed confirmation (non-blocking)
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .single();
+
+    const email = user.email;
+    const fullName = profile?.full_name ?? "Member";
+    if (email) {
+      sendPasswordChangedEmail(email, fullName).catch(() => null);
+    }
   }
 
-  // Redirect to role-appropriate destination
   const { data: userRow } = await supabase
     .from("users")
     .select("role")

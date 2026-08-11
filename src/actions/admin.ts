@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendWelcomeCredentials } from "@/lib/email";
+import {
+  sendAdminCreatedAccountEmail,
+  sendMemberApprovedEmail,
+  sendMemberRejectedEmail,
+  sendRoleUpdatedEmail,
+  sendAccountDisabledEmail,
+} from "@/lib/email";
 import type { Database } from "@/types/database";
 
 const ADMIN_ROLES = ["secretary", "president", "super_admin"];
@@ -24,6 +30,17 @@ async function assertAdmin() {
   const { data } = await supabase.from("users").select("role").eq("id", user.id).single();
   if (!ADMIN_ROLES.includes(data?.role ?? "")) return { error: "Unauthorized", supabase: null };
   return { error: null, supabase };
+}
+
+/** Resolve a user's email from auth.admin — used for email triggers */
+async function getUserEmail(userId: string): Promise<string | null> {
+  try {
+    const adminClient = createAdminClient();
+    const { data } = await adminClient.auth.admin.getUserById(userId);
+    return data.user?.email ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function approveMember(profileId: string) {
@@ -52,6 +69,45 @@ export async function approveMember(profileId: string) {
     link: "/dashboard",
   });
 
+  // Send approval email (non-blocking)
+  getUserEmail(profileId).then((email) => {
+    if (email) sendMemberApprovedEmail(email, fullName).catch(() => null);
+  });
+
+  revalidatePath("/admin/members");
+  revalidatePath("/admin/users");
+  return { success: true };
+}
+
+export async function rejectMember(profileId: string, reason?: string) {
+  const { error, supabase } = await assertAdmin();
+  if (error || !supabase) return { error };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", profileId)
+    .single();
+
+  const fullName = profile?.full_name ?? "member";
+
+  const { error: dbError } = await supabase
+    .from("profiles")
+    .update({ membership_status: "rejected" })
+    .eq("id", profileId);
+
+  if (dbError) return { error: "Failed to reject member." };
+
+  await supabase.from("notifications").insert({
+    profile_id: profileId,
+    title: "Membership Application Update",
+    message: "Your membership application could not be approved at this time. Please contact LIBSAR for more information.",
+  });
+
+  getUserEmail(profileId).then((email) => {
+    if (email) sendMemberRejectedEmail(email, fullName, reason).catch(() => null);
+  });
+
   revalidatePath("/admin/members");
   revalidatePath("/admin/users");
   return { success: true };
@@ -66,6 +122,20 @@ export async function updateUserRole(userId: string, role: string) {
 
   const { error: dbError } = await supabase.from("users").update({ role }).eq("id", userId);
   if (dbError) return { error: "Failed to update role." };
+
+  // Fetch name + email then notify (non-blocking)
+  supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .single()
+    .then(({ data: profile }) => {
+      const fullName = profile?.full_name ?? "Member";
+      getUserEmail(userId).then((email) => {
+        if (email) sendRoleUpdatedEmail(email, fullName, role).catch(() => null);
+      });
+    });
+
   revalidatePath("/admin/users");
   return { success: true };
 }
@@ -77,12 +147,27 @@ export async function updateMemberStatus(profileId: string, status: string) {
   const VALID_STATUSES = ["active", "inactive", "suspended", "alumni"];
   if (!VALID_STATUSES.includes(status)) return { error: "Invalid status" };
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", profileId)
+    .single();
+
   const { error: dbError } = await supabase
     .from("profiles")
     .update({ membership_status: status })
     .eq("id", profileId);
 
   if (dbError) return { error: "Failed to update status." };
+
+  // Notify on suspension
+  if (status === "suspended") {
+    const fullName = profile?.full_name ?? "Member";
+    getUserEmail(profileId).then((email) => {
+      if (email) sendAccountDisabledEmail(email, fullName).catch(() => null);
+    });
+  }
+
   revalidatePath("/admin/users");
   revalidatePath("/admin/members");
   return { success: true };
@@ -144,7 +229,8 @@ export async function createUserByAdmin(
       link: "/reset-password",
     });
 
-    await sendWelcomeCredentials(email, fullName, tempPassword).catch(() => null);
+    // Send credentials email (non-blocking)
+    sendAdminCreatedAccountEmail(email, fullName, tempPassword).catch(() => null);
   }
 
   revalidatePath("/admin/users");
@@ -222,13 +308,11 @@ export async function deleteUser(userId: string) {
   const { error, supabase } = await assertSuperAdmin();
   if (error || !supabase) return { error };
 
-  // Prevent deleting yourself
   const { data: { user } } = await supabase.auth.getUser();
   if (user?.id === userId) return { error: "You cannot delete your own account." };
 
   const adminClient = createAdminClient();
 
-  // Delete from profiles and users tables first, then auth
   await supabase.from("notifications").delete().eq("profile_id", userId);
   await supabase.from("profiles").delete().eq("id", userId);
   await supabase.from("users").delete().eq("id", userId);

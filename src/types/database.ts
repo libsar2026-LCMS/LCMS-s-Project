@@ -137,6 +137,12 @@ export type Database = {
         Update: { key?: string; value?: Json; updated_by?: string | null; updated_at?: string };
         Relationships: never[];
       };
+      email_logs: {
+        Row: { id: string; to: string; subject: string; type: string; status: string; error: string | null; created_at: string };
+        Insert: { to: string; subject: string; type: string; status: string; error?: string | null };
+        Update: never;
+        Relationships: never[];
+      };
     };
     Views: {
       [_ in never]: never;
