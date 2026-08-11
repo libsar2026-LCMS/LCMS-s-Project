@@ -82,7 +82,17 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </div>
         </Link>
 
-        <div className="w-full max-w-md">{children}</div>
+        <div className="w-full max-w-md">
+          {children}
+          <div className="mt-8 text-center">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-sm text-text-secondary hover:text-primary transition-colors"
+            >
+              ← Back to Home
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   );
